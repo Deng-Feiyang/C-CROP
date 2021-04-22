@@ -171,7 +171,7 @@ def batch_page_builder(models):
 
 def main():
     """C-CROP demo web app"""
-    st.set_page_config(page_title='C-CROP')
+    st.set_page_config(page_title='C-CROP', page_icon='dna_icon.png')
 
     st.sidebar.title('Menu')
     choose_mode = st.sidebar.selectbox("Choose the prediction mode", [
