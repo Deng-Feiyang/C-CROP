@@ -12,17 +12,23 @@ import base64
 
 from PIL import Image
 
+
 @st.cache
 def load_models(filename=None):
-    filename_default = 'model_avg_del_length.p'
+    filename_default = ['models/model_avg_del_length.p', 'models/model_avg_ins_length.p',
+                        'models/model_frac_frameshift.p', 'models/model_frac_indel_ins.p', 'models/model_indel_diversity.p']
     if not filename:
         filename = filename_default
 
-    pickle_in = open(filename_default, 'rb')
-    model_avg_del_length = pickle.load(pickle_in)
-    # model_avg_del_length = lightgbm.Booster(model_file=filename)
+    model_avg_del_length = pickle.load(open(filename[0], 'rb'))
+    model_avg_ins_length = pickle.load(open(filename[1], 'rb'))
+    model_frac_frameshift = pickle.load(open(filename[2], 'rb'))
+    model_frac_indel_ins = pickle.load(open(filename[3], 'rb'))
+    model_indel_diversity = pickle.load(open(filename[4], 'rb'))
 
-    return model_avg_del_length
+    models = (model_avg_del_length, model_avg_ins_length, model_frac_frameshift, model_frac_indel_ins, model_indel_diversity)
+
+    return models
 
 
 def upload_batch_data(uploaded_file):
@@ -32,7 +38,7 @@ def upload_batch_data(uploaded_file):
     rows = df.shape[0]
 
     data = data_preprocessing(df, rows)
-    return df, data, 'Uploaded file', rows
+    return df, data, rows
 
 
 def data_preprocessing(df, rows):
@@ -77,7 +83,7 @@ def prediction_downloader(data):
     st.markdown(href, unsafe_allow_html=True)
 
 
-def home_page_builder(model):
+def home_page_builder(models):
     st.title("C-CROP")
     st.write('**C**RISPR-**C**AS9 **R**epair **O**utcome **P**rediction')
     st.write('')
@@ -100,17 +106,28 @@ def home_page_builder(model):
     if st.button("Predict"):
         st.subheader("Output")
         data = pd.DataFrame([sequence])
-        avg_del_length = model.predict(data_preprocessing(data, 1))[0]
-        st.write('Average deletion length:', round(avg_del_length, 1), 'bps')
+        avg_del_length = models[0].predict(data_preprocessing(data, 1))[0]
+        avg_ins_length = models[1].predict(data_preprocessing(data, 1))[0]
+        frac_frameshift = models[2].predict(data_preprocessing(data, 1))[0]
+        frac_indel_ins = models[3].predict(data_preprocessing(data, 1))[0]
+        indel_deversity = models[4].predict(data_preprocessing(data, 1))[0]
+        st.write('Fraction of indel reads with insertion: ', round(100*frac_indel_ins, 0), '%')
+        st.write('Fraction of frameshift: ', round(100 * frac_frameshift, 0), '%')
+        st.write('Average insertion length: ', round(avg_ins_length, 1), 'bps')
+        st.write('Average deletion length: ', round(avg_del_length, 1), 'bps')
+        if indel_deversity > 3.38:
+            st.write('Diversity: ', round(indel_deversity, 2), ' (High)')
+        else:
+            st.write('Diversity: ', round(indel_deversity, 2), ' (Low)')
 
     st.write('---')
     st.write('Author: Deng Feiyang')
     st.write(
-        '[LinkediIn](https://www.linkedin.com/in/deng-feiyang/) | [Github](https://github.com/Deng-Feiyang/C-CROP)')
+        '[LinkedIn](https://www.linkedin.com/in/deng-feiyang/) | [Github](https://github.com/Deng-Feiyang/C-CROP)')
     st.write('')
 
 
-def batch_page_builder(model):
+def batch_page_builder(models):
     st.subheader('Batch Prediction')
     st.write('')
     st.write(
@@ -118,29 +135,38 @@ def batch_page_builder(model):
     st.write('')
     # Upload CSV file for batch prediction
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-    st.text('This process probably takes few seconds...')
+    st.text('This will probably take a few seconds...')
     st.write(
         'Note: Every row should only contain 20-nucleotide sgRNA sequence followed by the 3-nucleotide PAM sequence in **ONE** column.')
     if uploaded_file:
-        df, data, filename, rows = upload_batch_data(
+        df, data, rows = upload_batch_data(
             uploaded_file)
+        df.columns = ['input_sequence']
         st.write('-' * 80)
-        st.write('Uploaded data:', df.head(10))
+        st.write('Data preview:', df.head(10))
         st.write(
-            f'Uploaded data includes **{df.shape[0]}** rows and **{df.shape[1]}** columns')
+            f'Uploaded data contains **{df.shape[0]}** rows and **{df.shape[1]}** columns')
         st.write('')
         if st.button("Predict"):
             start_time = datetime.datetime.now()
-            avg_del_length = model.predict(data)
-            avg_del_length = pd.DataFrame(avg_del_length)
+            avg_del_length = models[0].predict(data)
+            avg_ins_length = models[1].predict(data)
+            frac_frameshift = models[2].predict(data)
+            frac_indel_ins = models[3].predict(data)
+            indel_deversity = models[4].predict(data)
+            df['frac_indel_ins'] = frac_indel_ins
+            df['frac_frameshift'] = frac_frameshift
+            df['avg_ins_length'] = avg_ins_length
+            df['avg_del_length'] = avg_del_length
+            df['indel_deversity'] = indel_deversity
             st.write('')
             st.write('-' * 80)
             st.subheader("Output")
             prediction_time = (datetime.datetime.now() - start_time).seconds
-            st.write('Average deletion length:')
-            st.write(avg_del_length.head(10))
+            st.write('Prediction results preview:')
+            st.write(df.head(20))
             st.text(f'Running time: {prediction_time} s')
-            prediction_downloader(avg_del_length)
+            prediction_downloader(df)
 
 
 def main():
@@ -152,7 +178,7 @@ def main():
         "Single", "Batch"])
 
     # Load models
-    model_avg_del_length = load_models()
+    models = load_models()
 
     st.sidebar.header('')
     st.sidebar.header('About')
@@ -161,13 +187,12 @@ def main():
 
     # Home page building
     if choose_mode == "Single":
-        home_page_builder(model_avg_del_length)
+        home_page_builder(models)
 
     # Page for batch prediction
     if choose_mode == "Batch":
-        batch_page_builder(model_avg_del_length)
+        batch_page_builder(models)
 
 
 if __name__ == "__main__":
     main()
-
